@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Data Scraper & Network Listener</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      width: 420px;
+      padding: 15px;
+      font-size: 14px;
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+
+    .section {
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    input[type="text"],
+    textarea {
+      flex: 1;
+      padding: 8px;
+      font-size: 13px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+    }
+
+    button {
+      padding: 8px 12px;
+      font-size: 13px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      background: #007bff;
+      color: white;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    .secondary-btn {
+      background: #6c757d;
+    }
+
+    .secondary-btn:hover {
+      background: #545b62;
+    }
+
+    .danger-btn {
+      background: #dc3545;
+    }
+
+    .danger-btn:hover {
+      background: #b02a37;
+    }
+
+    .item-row {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 8px 0;
+      border-bottom: 1px dashed #ddd;
+    }
+
+    .rule-actions,
+    .export-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .label-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .label-row input {
+      flex: 1;
+    }
+
+    .small-text {
+      font-size: 12px;
+      color: #555;
+    }
+
+    #statusNotification {
+      margin-top: 10px;
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    #endpointList,
+    #rulesList {
+      max-height: 180px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .path-label {
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 8px;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <h2>Data Scraper & Network Listener</h2>
+
+  <div class="section">
+    <span id="currentDomainLabel" class="path-label">Path: Loading...</span>
+    <div class="input-row">
+      <input type="text" id="endpointInput" placeholder="Add target path or URL" />
+      <button id="addEndpointBtn">Add</button>
+    </div>
+    <div id="endpointList">No active endpoints.</div>
+  </div>
+
+  <div class="section">
+    <button id="toggleInspectorBtn">Start Inspection</button>
+    <div class="small-text" style="margin-top: 8px;">
+      Start or stop element inspection for the current tab.
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Rules for current path</h3>
+    <div id="rulesList">No structural targets mapped for this path layout.</div>
+  </div>
+
+  <div class="section">
+    <h3>CSV and setup</h3>
+    <div class="export-actions">
+      <button id="downloadCsvBtn">Download CSV</button>
+      <button id="resetCapturedDataBtn" class="danger-btn">Reset captured data</button>
+      <button id="exportConfigBtn" class="secondary-btn">Export Setup</button>
+      <button id="importConfigBtn" class="secondary-btn">Import Setup</button>
+      <input type="file" id="importConfigFile" accept=".json" style="display:none;" />
+    </div>
+    <div class="small-text" style="margin-top: 8px;">
+      Reset deletes only collected rows and request history. Rules, endpoints, and column labels stay unchanged.
+    </div>
+  </div>
+
+  <div id="statusNotification"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
