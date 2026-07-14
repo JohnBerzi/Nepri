@@ -21,6 +21,15 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   let lastResultSignature = '';
   let refreshTimer = null;
 
+  function safeSendMessage(message, callback) {
+    if (!chrome.runtime || !chrome.runtime.id) return;
+    try {
+      chrome.runtime.sendMessage(message, callback);
+    } catch (e) {
+      console.warn("Extension context invalidated. Please refresh the page.");
+    }
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       if (message.type === 'PING') {
@@ -41,6 +50,7 @@ if (typeof window.__scraperV5Injected === 'undefined') {
 
   const norm = value => String(value || '').replace(/\s+/g, ' ').trim();
 
+  // UNIVERSAL: Parses any URL hash state dynamically
   function parseHashRoute() {
     const rawHash = String(window.location.hash || '');
     const withoutHash = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash;
@@ -48,31 +58,57 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     return { routePath: routePath || '/', params: new URLSearchParams(queryString), queryString };
   }
 
+  // UNIVERSAL: Works with standard paths and single-page application hash paths
   function getVirtualPath() {
     const { routePath, queryString } = parseHashRoute();
-    return `#${routePath}${queryString ? `?${queryString}` : ''}`;
+    const cleanPath = window.location.pathname;
+    return `${cleanPath}#${routePath}${queryString ? `?${queryString}` : ''}`;
   }
 
   function getPageNumber() {
     const { params } = parseHashRoute();
-    return String(params.get('page') || '1');
+    const searchParams = new URLSearchParams(window.location.search);
+    return String(params.get('page') || searchParams.get('page') || '1');
   }
 
-  function getProfileIdentity() {
-    const { routePath } = parseHashRoute();
-    const match = String(routePath || '').match(/^\/apps\/profile\/person\/([^\/?#]+)/i);
-    return match ? `person-${match[1]}` : '';
+  // UNIVERSAL: Extracts any unique page/profile/record identifier present in the URL query params or path
+  function getUniversalPageIdentity() {
+    const { routePath, params } = parseHashRoute();
+    const searchParams = new URLSearchParams(window.location.search);
+
+    // Look for common dynamic unique entity IDs in queries (e.g., ?id=123, ?contactId=abc, ?userId=xyz)
+    const commonIdKeys = ['id', 'contactid', 'personid', 'userid', 'recid', 'profileid', 'p'];
+    for (const key of commonIdKeys) {
+      const val = params.get(key) || searchParams.get(key);
+      if (val) return `entity-${val}`;
+    }
+
+    // Otherwise, find the last segment of the path if it looks like an identifier (e.g., /profile/12345)
+    const combinedPath = `${window.location.pathname}/${routePath}`.replace(/\/+/g, '/');
+    const segments = combinedPath.split('/').filter(Boolean);
+    if (segments.length > 0) {
+      const lastSegment = segments[segments.length - 1];
+      // If the last segment has numbers or looks like a unique hash, use it
+      if (/\d/.test(lastSegment) || lastSegment.length > 10) {
+        return `path-${lastSegment}`;
+      }
+    }
+    return '';
   }
 
   function getSearchFingerprint() {
+    const pageId = getUniversalPageIdentity();
+    if (pageId) return `#dynamic-view__${pageId}`;
+    
     const { routePath, params } = parseHashRoute();
-    const profileIdentity = getProfileIdentity();
-    if (profileIdentity) return `#${routePath.split('/').slice(0, 5).join('/')}__${profileIdentity}`;
     const pairs = [];
     params.forEach((value, key) => { if (key !== 'page') pairs.push([key, value]); });
+    const searchParams = new URLSearchParams(window.location.search);
+    searchParams.forEach((value, key) => { if (key !== 'page') pairs.push([key, value]); });
+
     pairs.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
     const query = pairs.map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&');
-    return `#${routePath}${query ? `?${query}` : ''}`;
+    return `${window.location.pathname}#${routePath}${query ? `?${query}` : ''}`;
   }
 
   function getCaptureSessionKey() {
@@ -80,23 +116,31 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   }
 
   function extractNodeText(node) {
-    return node ? norm(node.innerText || node.textContent || '') : '';
+    if (!node) return '';
+    let text = node.innerText || node.textContent || node.value || '';
+    if (!text && node.placeholder) text = node.placeholder;
+    return norm(text);
   }
 
+  // UNIVERSAL: Creates a unique signature snapshot based on the actual text content visible in the DOM
   function getResultSignature() {
-    const preferredSelectors = ['table tbody tr', '[role="row"]', '[data-testid*="result"]', '[data-testid*="search-result"]'];
+    const preferredSelectors = ['table tbody tr', '[role="row"]', 'tr', 'li', 'h1', 'h2', 'main'];
     for (const selector of preferredSelectors) {
       const values = Array.from(document.querySelectorAll(selector))
         .filter(node => node.getBoundingClientRect && node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0)
         .map(extractNodeText)
         .filter(Boolean)
-        .slice(0, 50);
-      if (values.length >= 2) return values.join('\n').slice(0, 16000);
+        .slice(0, 30);
+      if (values.length >= 1) return values.join('\n').slice(0, 8000);
     }
-    return '';
+    return (document.body?.innerText || '').slice(0, 4000);
   }
 
   function getEffectivePageKey() {
+    const pageId = getUniversalPageIdentity();
+    if (pageId) {
+      return pageId;
+    }
     const signature = getResultSignature();
     return signature ? `${getPageNumber()}-${hashString(signature)}` : getPageNumber();
   }
@@ -111,23 +155,26 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   }
 
   function normalizeEndpointValue(endpoint) {
-    let value = String(endpoint || '').trim();
+    let value = String(endpoint || '').trim().toLowerCase();
     if (!value) return '';
-    try {
-      if (/^https?:/i.test(value)) {
-        const url = new URL(value);
-        value = url.hash || url.pathname;
-      }
-    } catch (e) {}
-    if (value.startsWith('/#/')) value = value.slice(1);
-    return value;
+    value = value.replace(/^https?:\/\/[^\/]+/i, '');
+    value = value.replace(/^[\/#\s]+/, '');
+    return value.split('?')[0];
   }
 
+  // UNIVERSAL: Matches any configured endpoint route agnostically
   function findMatchingEndpoint(endpoints) {
-    const currentRoute = getVirtualPath().split('?')[0];
+    const currentRoute = normalizeEndpointValue(getVirtualPath());
+    const currentFullUrl = normalizeEndpointValue(window.location.href);
+
     return (endpoints || []).find(endpoint => {
-      const clean = normalizeEndpointValue(endpoint).split('?')[0];
-      return clean && (currentRoute === clean || currentRoute.startsWith(clean) || clean.startsWith(currentRoute));
+      const cleanSavedEndpoint = normalizeEndpointValue(endpoint);
+      if (!cleanSavedEndpoint) return false;
+      return (
+        currentRoute.includes(cleanSavedEndpoint) || 
+        currentFullUrl.includes(cleanSavedEndpoint) ||
+        cleanSavedEndpoint.includes(currentRoute)
+      );
     }) || '';
   }
 
@@ -331,6 +378,7 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   }
 
   function saveElements(elements, callback) {
+    if (!chrome.runtime || !chrome.runtime.id) return;
     chrome.storage.local.set({ scrapedElements: elements }, () => callback && callback(!chrome.runtime.lastError));
   }
 
@@ -349,9 +397,14 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   function captureSelectorNodes(selector, nodes, endpoint, rules, elements) {
     let insertedCount = 0;
     const pageNumber = getEffectivePageKey();
+    
     nodes.forEach((node, index) => {
       const text = extractNodeText(node);
-      if (!text) return;
+      if (!text) {
+        console.warn(`Scraper skipped selector "${selector}" at index ${index} because extracted text was empty.`, node);
+        return;
+      }
+      
       const item = {
         text,
         selector: `${selector}::${index + 1}`,
@@ -365,8 +418,10 @@ if (typeof window.__scraperV5Injected === 'undefined') {
         pageNumber,
         timestamp: new Date().toISOString()
       };
+      
       item.entryKey = buildEntry(item);
-      if (!elements.some(existing => existing.entryKey === item.entryKey)) {
+      const isDuplicate = elements.some(existing => existing.entryKey === item.entryKey);
+      if (!isDuplicate) {
         elements.push(item);
         insertedCount += 1;
       }
@@ -375,13 +430,14 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   }
 
   function handleElementClick(event) {
-    if (!isInspecting || isWritingBatch) return;
+    if (!isInspecting || isWritingBatch || !chrome.runtime?.id) return;
     event.preventDefault();
     event.stopPropagation();
     isWritingBatch = true;
     const selector = currentActiveSelector || buildExactSelector(hoveredElement);
     const nodes = currentResolvedNodes.length ? currentResolvedNodes : (hoveredElement ? [hoveredElement] : []);
     chrome.storage.local.get(['endpoints', 'inspectionRules', 'scrapedElements'], result => {
+      if (!chrome.runtime?.id) return;
       const endpoints = result.endpoints || [];
       const rules = result.inspectionRules || {};
       const elements = result.scrapedElements || [];
@@ -398,7 +454,7 @@ if (typeof window.__scraperV5Injected === 'undefined') {
       chrome.storage.local.set({ inspectionRules: rules }, () => {
         saveElements(elements, () => {
           setStatus(true, 'Captured successfully', `Saved ${insertedCount} item(s).`);
-          chrome.runtime.sendMessage({ type: 'INSPECTOR_DONE', insertedCount, selector, endpoint });
+          safeSendMessage({ type: 'INSPECTOR_DONE', insertedCount, selector, endpoint });
           isWritingBatch = false;
           stopInspector();
         });
@@ -407,14 +463,15 @@ if (typeof window.__scraperV5Injected === 'undefined') {
   }
 
   function refreshFromStoredRules() {
+    if (!chrome.runtime || !chrome.runtime.id) return;
     chrome.storage.local.get(['endpoints', 'inspectionRules', 'scrapedElements', 'columnNames'], result => {
+      if (!chrome.runtime || !chrome.runtime.id) return;
       const endpoint = findMatchingEndpoint(result.endpoints || []);
       const rules = result.inspectionRules || {};
       const selectors = endpoint ? (rules[endpoint] || []) : [];
       if (!endpoint || !selectors.length || isWritingBatch) return;
 
-      const profileIdentity = getProfileIdentity();
-      const signature = profileIdentity ? profileIdentity : getResultSignature();
+      const signature = getResultSignature();
       if (!signature || signature === lastResultSignature) return;
       lastResultSignature = signature;
 
@@ -430,35 +487,69 @@ if (typeof window.__scraperV5Injected === 'undefined') {
             missingColumns.push(columnName);
             return;
           }
-          const before = elements.length;
-          insertedCount += captureSelectorNodes(selector, nodes, endpoint, rules, elements);
-          if (elements.length === before && !nodes.some(node => extractNodeText(node))) missingColumns.push(columnName);
+          
+          const inserted = captureSelectorNodes(selector, nodes, endpoint, rules, elements);
+          insertedCount += inserted;
+          
+          const hasText = nodes.some(node => extractNodeText(node).length > 0);
+          if (!hasText) {
+            missingColumns.push(columnName);
+          }
         } catch (e) {
           missingColumns.push(columnName);
         }
       });
 
-      if (insertedCount) {
-        saveElements(elements, () => {
-          if (missingColumns.length) {
-            setStatus(false, 'Missing columns', `Captured ${insertedCount} item(s), but ${missingColumns.length} column(s) were not found.`, missingColumns);
-          } else {
-            setStatus(true, 'All elements captured', `Saved ${insertedCount} item(s) from updated results.`);
-          }
-        });
-      } else if (missingColumns.length) {
+      if (missingColumns.length > 0) {
         setStatus(false, 'Missing columns', `${missingColumns.length} configured column(s) were not found on this page.`, missingColumns);
+      } else {
+        if (insertedCount > 0) {
+          saveElements(elements, () => {
+            setStatus(true, 'All elements captured', `Successfully captured and saved page data.`);
+          });
+        } else {
+          setStatus(true, 'Elements verified', `All configured columns are present on this page.`);
+        }
       }
     });
   }
 
+  // --- ROBUST UNIVERSAL SPA ROUTE CHANGE DETECTION ---
+  let lastObservedUrl = window.location.href;
+
+  function forceStateResetAndRefresh() {
+    lastResultSignature = ''; 
+    
+    setTimeout(() => {
+      refreshFromStoredRules();
+    }, 150);
+
+    setTimeout(() => {
+      refreshFromStoredRules();
+    }, 800);
+  }
+
+  window.addEventListener('hashchange', forceStateResetAndRefresh);
+  window.addEventListener('popstate', forceStateResetAndRefresh);
+
   layoutMutationObserver = new MutationObserver(() => {
     if (!chrome.runtime || !chrome.runtime.id || isWritingBatch) return;
+
+    if (window.location.href !== lastObservedUrl) {
+      lastObservedUrl = window.location.href;
+      forceStateResetAndRefresh();
+      return;
+    }
+
     clearTimeout(refreshTimer);
     refreshTimer = setTimeout(refreshFromStoredRules, 400);
   });
-  layoutMutationObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-  window.addEventListener('hashchange', () => { lastResultSignature = ''; setTimeout(refreshFromStoredRules, 450); });
-  window.addEventListener('popstate', () => { lastResultSignature = ''; setTimeout(refreshFromStoredRules, 450); });
+
+  layoutMutationObserver.observe(document.documentElement, { 
+    childList: true, 
+    subtree: true, 
+    characterData: true 
+  });
+
   setTimeout(refreshFromStoredRules, 500);
 }
