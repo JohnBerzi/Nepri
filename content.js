@@ -65,39 +65,46 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     return `${cleanPath}#${routePath}${queryString ? `?${queryString}` : ''}`;
   }
 
-  function getPageNumber() {
-    const { params } = parseHashRoute();
-    const searchParams = new URLSearchParams(window.location.search);
-    return String(params.get('page') || searchParams.get('page') || '1');
-  }
-
   // UNIVERSAL: Extracts any unique page/profile/record identifier present in the URL query params or path
   function getUniversalPageIdentity() {
     const { routePath, params } = parseHashRoute();
     const searchParams = new URLSearchParams(window.location.search);
 
-    // Look for common dynamic unique entity IDs in queries (e.g., ?id=123, ?contactId=abc, ?userId=xyz)
+    // 1. Look for common dynamic unique entity IDs in queries (e.g., ?id=123, ?contactId=abc, ?userId=xyz)
     const commonIdKeys = ['id', 'contactid', 'personid', 'userid', 'recid', 'profileid', 'p'];
     for (const key of commonIdKeys) {
       const val = params.get(key) || searchParams.get(key);
       if (val) return `entity-${val}`;
     }
 
-    // Otherwise, find the last segment of the path if it looks like an identifier (e.g., /profile/12345)
+    // 2. Look for numeric or hash-like segments inside the path (e.g., /person/2481055131/contact-profile)
     const combinedPath = `${window.location.pathname}/${routePath}`.replace(/\/+/g, '/');
     const segments = combinedPath.split('/').filter(Boolean);
-    if (segments.length > 0) {
-      const lastSegment = segments[segments.length - 1];
-      // If the last segment has numbers or looks like a unique hash, use it
-      if (/\d/.test(lastSegment) || lastSegment.length > 10) {
-        return `path-${lastSegment}`;
+    
+    // Iterate backwards to find the first segment that looks like a database ID (all digits, or long hash)
+    for (let i = segments.length - 1; i >= 0; i--) {
+      const segment = segments[i];
+      if (/^\d+$/.test(segment) || (segment.length > 8 && /[0-9].*[a-zA-Z]|[a-zA-Z].*[0-9]/.test(segment))) {
+        return `path-${segment}`;
       }
     }
     return '';
   }
 
+  function getPageNumber() {
+    // If we are viewing a specific profile/entity, the "Page Number" is the entity's ID itself.
+    // This guarantees that separate profiles never share a page container key and overwrite each other.
+    const pageId = getUniversalPageIdentity();
+    if (pageId) return pageId;
+
+    const { params } = parseHashRoute();
+    const searchParams = new URLSearchParams(window.location.search);
+    return String(params.get('page') || searchParams.get('page') || '1');
+  }
+
   function getSearchFingerprint() {
     const pageId = getUniversalPageIdentity();
+    // If it's a dedicated entity page, make sure the fingerprint is completely tied to this specific entity
     if (pageId) return `#dynamic-view__${pageId}`;
     
     const { routePath, params } = parseHashRoute();
