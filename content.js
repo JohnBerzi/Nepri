@@ -405,15 +405,34 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     let insertedCount = 0;
     const pageNumber = getEffectivePageKey();
     
+    // If no nodes are provided or nodes array is empty, inject an empty placeholder to keep CSV rows aligned
+    if (!nodes || nodes.length === 0) {
+      const item = {
+        text: '',
+        selector: `${selector}::1`,
+        baseSelector: selector,
+        itemIndex: 1,
+        endpointOrigin: endpoint,
+        domain: window.location.hostname,
+        path: getVirtualPath(),
+        searchFingerprint: getSearchFingerprint(),
+        captureSessionKey: getCaptureSessionKey(),
+        pageNumber,
+        timestamp: new Date().toISOString()
+      };
+      item.entryKey = buildEntry(item);
+      const isDuplicate = elements.some(existing => existing.entryKey === item.entryKey);
+      if (!isDuplicate) {
+        elements.push(item);
+        insertedCount += 1;
+      }
+      return insertedCount;
+    }
+
     nodes.forEach((node, index) => {
       const text = extractNodeText(node);
-      if (!text) {
-        console.warn(`Scraper skipped selector "${selector}" at index ${index} because extracted text was empty.`, node);
-        return;
-      }
-      
       const item = {
-        text,
+        text, // Saves empty string if text extraction returns falsy, keeping dataset aligned
         selector: `${selector}::${index + 1}`,
         baseSelector: selector,
         itemIndex: index + 1,
@@ -484,19 +503,23 @@ if (typeof window.__scraperV5Injected === 'undefined') {
 
       const elements = result.scrapedElements || [];
       const missingColumns = [];
-      let insertedCount = 0;
+      let totalChanges = 0;
 
       selectors.forEach((selector, index) => {
         const columnName = (result.columnNames || {})[selector] || `Column ${index + 1}`;
         try {
           const nodes = getNodesForSelector(selector);
+          
+          // If selector returned no DOM nodes, we inject a blank item placeholder so other columns still import
           if (!nodes.length) {
             missingColumns.push(columnName);
+            const insertedPlaceholder = captureSelectorNodes(selector, [], endpoint, rules, elements);
+            totalChanges += insertedPlaceholder;
             return;
           }
           
           const inserted = captureSelectorNodes(selector, nodes, endpoint, rules, elements);
-          insertedCount += inserted;
+          totalChanges += inserted;
           
           const hasText = nodes.some(node => extractNodeText(node).length > 0);
           if (!hasText) {
@@ -504,16 +527,23 @@ if (typeof window.__scraperV5Injected === 'undefined') {
           }
         } catch (e) {
           missingColumns.push(columnName);
+          const insertedPlaceholder = captureSelectorNodes(selector, [], endpoint, rules, elements);
+          totalChanges += insertedPlaceholder;
         }
       });
 
-      if (missingColumns.length > 0) {
-        setStatus(false, 'Missing columns', `${missingColumns.length} configured column(s) were not found on this page.`, missingColumns);
-      } else {
-        if (insertedCount > 0) {
-          saveElements(elements, () => {
+      // We now ALWAYS save the gathered elements, even if there are missing columns
+      if (totalChanges > 0) {
+        saveElements(elements, () => {
+          if (missingColumns.length > 0) {
+            setStatus(false, 'Incomplete page captured', `${missingColumns.length} field(s) were empty or missing, but other columns were successfully saved.`, missingColumns);
+          } else {
             setStatus(true, 'All elements captured', `Successfully captured and saved page data.`);
-          });
+          }
+        });
+      } else {
+        if (missingColumns.length > 0) {
+          setStatus(false, 'Missing columns', `${missingColumns.length} configured column(s) are empty or missing on this page.`, missingColumns);
         } else {
           setStatus(true, 'Elements verified', `All configured columns are present on this page.`);
         }
