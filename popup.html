@@ -1,163 +1,72 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Data Scraper & Network Listener</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Directory Scraper</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      width: 420px;
-      padding: 15px;
-      font-size: 14px;
-    }
-
-    h2 {
-      margin-top: 0;
-      font-size: 18px;
-    }
-
-    .section {
-      margin-bottom: 18px;
-      padding-bottom: 12px;
-      border-bottom: 1px solid #ddd;
-    }
-
-    .input-row {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 10px;
-    }
-
-    input[type="text"],
-    textarea {
-      flex: 1;
-      padding: 8px;
-      font-size: 13px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-    }
-
-    button {
-      padding: 8px 12px;
-      font-size: 13px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      background: #007bff;
-      color: white;
-    }
-
-    button:hover {
-      background: #0056b3;
-    }
-
-    .secondary-btn {
-      background: #6c757d;
-    }
-
-    .secondary-btn:hover {
-      background: #545b62;
-    }
-
-    .danger-btn {
-      background: #dc3545;
-    }
-
-    .danger-btn:hover {
-      background: #b02a37;
-    }
-
-    .item-row {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      padding: 8px 0;
-      border-bottom: 1px dashed #ddd;
-    }
-
-    .rule-actions,
-    .export-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-top: 8px;
-    }
-
-    .label-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .label-row input {
-      flex: 1;
-    }
-
-    .small-text {
-      font-size: 12px;
-      color: #555;
-    }
-
-    #statusNotification {
-      margin-top: 10px;
-      font-size: 13px;
-      min-height: 18px;
-    }
-
-    #endpointList,
-    #rulesList {
-      max-height: 180px;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-
-    .path-label {
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 8px;
-      display: block;
-    }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 14px; width: 460px; font-family: Arial, sans-serif; background: #f7f9fc; color: #132033; }
+    .card { background: #fff; border: 1px solid #dbe3ee; border-radius: 10px; padding: 12px; box-shadow: 0 2px 8px rgba(15,23,42,.05); margin-bottom: 12px; }
+    h1 { font-size: 18px; margin: 0 0 8px 0; } h2 { font-size: 14px; margin: 0 0 10px 0; }
+    .muted { color: #5b6677; font-size: 12px; line-height: 1.45; }
+    .path-line { display:block; background:#eef4fb; border:1px solid #d6e3f3; border-radius:8px; padding:8px 10px; font-size:12px; color:#294661; word-break:break-all; margin-top:8px; }
+    .row { display:flex; gap:8px; align-items:center; }
+    input[type="text"] { flex:1; min-width:0; padding:9px 10px; border:1px solid #cfd8e3; border-radius:8px; background:#fff; font-size:13px; color:#132033; }
+    button { border:none; border-radius:8px; padding:9px 12px; font-size:13px; font-weight:600; cursor:pointer; }
+    #addEndpointBtn { background:#2563eb; color:#fff; } #importBtn { background:#6b7280; color:#fff; } #exportBtn { background:#0f766e; color:#fff; }
+    #inspectBtn { background:#28a745; color:#fff; width:100%; margin-top:8px; }
+    #downloadCsvBtn { background:#0f766e; color:#fff; width:100%; margin-top:8px; }
+    #resetCapturedDataBtn { background:#dc3545; color:#fff; width:100%; margin-top:8px; }
+    .list { display:flex; flex-direction:column; gap:8px; }
+    .item-row { background:#f9fbfd; border:1px solid #e4eaf2; border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:6px; }
+    .delete-btn { background:#eef2f7; color:#334155; padding:6px 10px; font-size:12px; }
+    #statusNotification { min-height:18px; font-size:12px; font-weight:600; margin-top:8px; }
+    #capturedPreview { max-height:220px; overflow:auto; border:1px solid #e4eaf2; border-radius:8px; background:#fbfdff; padding:8px 10px; }
+    .small { font-size:12px; }
   </style>
 </head>
 <body>
-  <h2>Data Scraper & Network Listener</h2>
-
-  <div class="section">
-    <span id="currentDomainLabel" class="path-label">Path: Loading...</span>
-    <div class="input-row">
-      <input type="text" id="endpointInput" placeholder="Add target path or URL" />
-      <button id="addEndpointBtn">Add</button>
-    </div>
-    <div id="endpointList">No active endpoints.</div>
+  <div class="card">
+    <h1>Directory Scraper</h1>
+    <div class="muted">Restored popup with import/export, selector tuning, and live capture preview.</div>
+    <div id="currentDomainLabel" class="path-line">Path: Loading...</div>
   </div>
 
-  <div class="section">
-    <button id="toggleInspectorBtn">Start Inspection</button>
-    <div class="small-text" style="margin-top: 8px;">
-      Start or stop element inspection for the current tab.
+  <div class="card">
+    <h2>Endpoint</h2>
+    <div class="row">
+      <input id="endpointInput" type="text" placeholder="#/apps/search/v2/results/company" />
+      <button id="addEndpointBtn" type="button">Add</button>
     </div>
+    <div class="row" style="margin-top:8px;">
+      <button id="importBtn" type="button">Import</button>
+      <button id="exportBtn" type="button">Export</button>
+      <input id="importFile" type="file" accept="application/json" style="display:none" />
+    </div>
+    <button id="inspectBtn" type="button">Inspect Element</button>
+    <div id="statusNotification"></div>
   </div>
 
-  <div class="section">
-    <h3>Rules for current path</h3>
-    <div id="rulesList">No structural targets mapped for this path layout.</div>
+  <div class="card">
+    <h2>Saved Endpoints</h2>
+    <div id="endpointList" class="list">No active endpoints.</div>
   </div>
 
-  <div class="section">
-    <h3>CSV and setup</h3>
-    <div class="export-actions">
-      <button id="downloadCsvBtn">Download CSV</button>
-      <button id="resetCapturedDataBtn" class="danger-btn">Reset captured data</button>
-      <button id="exportConfigBtn" class="secondary-btn">Export Setup</button>
-      <button id="importConfigBtn" class="secondary-btn">Import Setup</button>
-      <input type="file" id="importConfigFile" accept=".json" style="display:none;" />
-    </div>
-    <div class="small-text" style="margin-top: 8px;">
-      Reset deletes only collected rows and request history. Rules, endpoints, and column labels stay unchanged.
-    </div>
+  <div class="card">
+    <h2>Mapped Rules</h2>
+    <div id="rulesList" class="list">No structural targets mapped for this hash route.</div>
   </div>
 
-  <div id="statusNotification"></div>
+  <div class="card">
+    <h2>Captured Preview</h2>
+    <div id="capturedPreview"><div class="muted">No captured items yet.</div></div>
+  </div>
+
+  <div class="card">
+    <button id="downloadCsvBtn" type="button">Download CSV</button>
+    <button id="resetCapturedDataBtn" type="button">Reset Captured Data</button>
+  </div>
 
   <script src="popup.js"></script>
 </body>
