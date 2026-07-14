@@ -165,9 +165,17 @@ function bindStaticActions() {
           rows[key][rule] = item.text || '';
         });
         const records = Object.values(rows).sort((a, b) => String(a.__search).localeCompare(String(b.__search)) || String(a.__page).localeCompare(String(b.__page), undefined, { numeric: true }) || a.__row - b.__row);
-        if (!records.length) return;
+        const uniqueRecords = [];
+        const seenRowValues = new Set();
+        records.forEach(record => {
+          const duplicateKey = endpointRules.map(rule => normCsvValue(record[rule])).join('\u001f');
+          if (!duplicateKey || seenRowValues.has(duplicateKey)) return;
+          seenRowValues.add(duplicateKey);
+          uniqueRecords.push(record);
+        });
+        if (!uniqueRecords.length) return;
         let csv = endpointRules.map((rule, index) => csvEscape(names[rule] || `Column ${index + 1}`)).join(',') + '\n';
-        records.forEach(record => { csv += endpointRules.map(rule => csvEscape(record[rule] || '')).join(',') + '\n'; });
+        uniqueRecords.forEach(record => { csv += endpointRules.map(rule => csvEscape(record[rule] || '')).join(',') + '\n'; });
         downloadCsvFile(`${sanitizeFilePart(endpoint)}.csv`, csv);
         downloaded += 1;
       });
@@ -290,6 +298,10 @@ function clearStatus() {
 
 function escapeHtml(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function normCsvValue(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function csvEscape(value) {
