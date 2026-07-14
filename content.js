@@ -58,8 +58,16 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     return String(params.get('page') || '1');
   }
 
+  function getProfileIdentity() {
+    const { routePath } = parseHashRoute();
+    const match = String(routePath || '').match(/^\/apps\/profile\/person\/([^\/?#]+)/i);
+    return match ? `person-${match[1]}` : '';
+  }
+
   function getSearchFingerprint() {
     const { routePath, params } = parseHashRoute();
+    const profileIdentity = getProfileIdentity();
+    if (profileIdentity) return `#${routePath.split('/').slice(0, 5).join('/')}__${profileIdentity}`;
     const pairs = [];
     params.forEach((value, key) => { if (key !== 'page') pairs.push([key, value]); });
     pairs.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[1]).localeCompare(String(b[1])));
@@ -404,18 +412,42 @@ if (typeof window.__scraperV5Injected === 'undefined') {
       const rules = result.inspectionRules || {};
       const selectors = endpoint ? (rules[endpoint] || []) : [];
       if (!endpoint || !selectors.length || isWritingBatch) return;
-      const signature = getResultSignature();
+
+      const profileIdentity = getProfileIdentity();
+      const signature = profileIdentity ? profileIdentity : getResultSignature();
       if (!signature || signature === lastResultSignature) return;
       lastResultSignature = signature;
+
       const elements = result.scrapedElements || [];
+      const missingColumns = [];
       let insertedCount = 0;
-      selectors.forEach(selector => {
+
+      selectors.forEach((selector, index) => {
+        const columnName = (result.columnNames || {})[selector] || `Column ${index + 1}`;
         try {
-          insertedCount += captureSelectorNodes(selector, getNodesForSelector(selector), endpoint, rules, elements);
-        } catch (e) {}
+          const nodes = getNodesForSelector(selector);
+          if (!nodes.length) {
+            missingColumns.push(columnName);
+            return;
+          }
+          const before = elements.length;
+          insertedCount += captureSelectorNodes(selector, nodes, endpoint, rules, elements);
+          if (elements.length === before && !nodes.some(node => extractNodeText(node))) missingColumns.push(columnName);
+        } catch (e) {
+          missingColumns.push(columnName);
+        }
       });
+
       if (insertedCount) {
-        saveElements(elements, () => setStatus(true, 'All elements captured', `Saved ${insertedCount} item(s) from updated results.`));
+        saveElements(elements, () => {
+          if (missingColumns.length) {
+            setStatus(false, 'Missing columns', `Captured ${insertedCount} item(s), but ${missingColumns.length} column(s) were not found.`, missingColumns);
+          } else {
+            setStatus(true, 'All elements captured', `Saved ${insertedCount} item(s) from updated results.`);
+          }
+        });
+      } else if (missingColumns.length) {
+        setStatus(false, 'Missing columns', `${missingColumns.length} configured column(s) were not found on this page.`, missingColumns);
       }
     });
   }
@@ -426,7 +458,7 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     refreshTimer = setTimeout(refreshFromStoredRules, 400);
   });
   layoutMutationObserver.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-  window.addEventListener('hashchange', () => { lastResultSignature = ''; setTimeout(refreshFromStoredRules, 300); });
-  window.addEventListener('popstate', () => { lastResultSignature = ''; setTimeout(refreshFromStoredRules, 300); });
+  window.addEventListener('hashchange', () => { lastResultSignature = ''; setTimeout(refreshFromStoredRules, 450); });
+  window.addEventListener('popstate', () => { lastResultSignature = ''; setTimeout(refreshFromStoredRules, 450); });
   setTimeout(refreshFromStoredRules, 500);
 }
