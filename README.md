@@ -1,4 +1,4 @@
-# Data Scraper & Network Listener (v1.0)
+# Nepri (Data Scraper) (v1.0)
 An advanced Chrome Extension utilizing Chrome Extension Manifest V3 to perform real-time, non-intrusive network interception and dynamic, state-aware DOM scraping. Designed for Single Page Applications (SPAs) and highly dynamic web environments, this system aligns unstructured web elements into unified data tables through deterministic DOM targeting, robust route parsing, and structural data-normalization strategies.
 
 ---
