@@ -169,7 +169,7 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     return value.split('?')[0];
   }
 
-  // UNIVERSAL: Matches any configured endpoint route agnostically
+  // UNIVERSAL: Matches any configured endpoint route agnostically without triggering false positives
   function findMatchingEndpoint(endpoints) {
     const currentRoute = normalizeEndpointValue(getVirtualPath());
     const currentFullUrl = normalizeEndpointValue(window.location.href);
@@ -179,8 +179,7 @@ if (typeof window.__scraperV5Injected === 'undefined') {
       if (!cleanSavedEndpoint) return false;
       return (
         currentRoute.includes(cleanSavedEndpoint) || 
-        currentFullUrl.includes(cleanSavedEndpoint) ||
-        cleanSavedEndpoint.includes(currentRoute)
+        currentFullUrl.includes(cleanSavedEndpoint)
       );
     }) || '';
   }
@@ -211,6 +210,14 @@ if (typeof window.__scraperV5Injected === 'undefined') {
       sibling = sibling.previousElementSibling;
     }
     return `${buildExactSelector(element.parentElement)} > ${token}:nth-of-type(${index})`;
+  }
+
+  // Helper to remove active badges when navigating away from matched targets
+  function removeVisualBadge() {
+    if (visualIndicatorBadge) {
+      visualIndicatorBadge.remove();
+      visualIndicatorBadge = null;
+    }
   }
 
   function getCellColumnIndex(element) {
@@ -493,9 +500,16 @@ if (typeof window.__scraperV5Injected === 'undefined') {
     chrome.storage.local.get(['endpoints', 'inspectionRules', 'scrapedElements', 'columnNames'], result => {
       if (!chrome.runtime || !chrome.runtime.id) return;
       const endpoint = findMatchingEndpoint(result.endpoints || []);
+      
+      // If we are on a page that doesn't match any targets, safely remove existing badges and exit
+      if (!endpoint) {
+        removeVisualBadge();
+        return;
+      }
+
       const rules = result.inspectionRules || {};
       const selectors = endpoint ? (rules[endpoint] || []) : [];
-      if (!endpoint || !selectors.length || isWritingBatch) return;
+      if (!selectors.length || isWritingBatch) return;
 
       const signature = getResultSignature();
       if (!signature || signature === lastResultSignature) return;
